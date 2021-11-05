@@ -84,6 +84,7 @@ def quant_table():
         print("error: quant section contained unexpected data");
         sys.exit(1);
 
+
 # handle censor_data section
 #   this section header could be used by other apps
 #   but if its mine it indicates the image is already
@@ -101,13 +102,44 @@ def censor_data():
 
 # handle huffman_table entries
 def huffman_table():
-    global data;
+    global data, elements, huffman_trees;
     debug("Huffman table");
     (length, header, ) = unpack(">HB", data[2:5]);
-    entries = unpack("BBBBBBBBBBBBBBBB", data[5:21]);
+    header = (header >> 3) | (header & 0x01); 
+    lengths = list(unpack("BBBBBBBBBBBBBBBB", data[5:21]));
+    debug(('Y_DC', 'Y_AC', 'C_DC', 'C_AC')[header]);
+    debug(lengths);
+    elements = list(unpack("B" * sum(lengths), data[21:21 + sum(lengths)]));
+    debug(elements);
+
+    # this important function loads the important parts of the
+    #   huffman tables into a binary tree mapping to the values
+    def make_huff(bits, depth):
+        global elements;
+        tree = [];
+        for i in [0,1]:
+            if(lengths[depth]):
+                lengths[depth] -= 1;
+                debug(bits + str(i), elements[0]);
+                tree.append(elements[0]);
+                elements = elements[1:];
+            elif(len(elements)):
+                tree.append(make_huff(bits + str(i), depth + 1));
+        return tree;
+
+    # load the huff table!
+    hufftree = make_huff('', 0);
+    debug(hufftree);
+    huffman_trees[header] = hufftree;
+    # work in progress - loading huff trees, not using them yet..
+    # this WON'T load everything correctly for the EXIF formatted ones which seem to cram all of the tables into the same header
+    # it also WON'T load the progressive tables that are defined within scan data yet.. i'll figure that out later
+    
+
+    # truncate and return like normal
     sections.append(data[:2 + length]);
     data = data[2 + length:];
-    
+
 
 # handle the image data
 def image_scan():
@@ -135,7 +167,7 @@ def irrelevant_section():
     sections.append(data[:2 + length]);
     data = data[2 + length:];
 
-    
+
 # handle the end of the image
 def end_image():
     global data;
@@ -144,11 +176,11 @@ def end_image():
     data = [];
 
 
-
 sections = [];
 quant_tables = [];
 image_data = None;
 censored_data = None;
+huffman_trees = {};
 section_handlers = {
     0xFFD8: start_image,
     0xFFDB: quant_table,
